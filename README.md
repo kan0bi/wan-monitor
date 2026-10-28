@@ -1,6 +1,6 @@
 # WAN Monitor para MikroTik
 
-Página web que mostra em tempo real o tráfego (download/upload) de duas WAN de um MikroTik,
+Página web que mostra em tempo real o tráfego (download/upload) das WAN de um MikroTik (2 a 9 WAN),
 lendo os contadores das interfaces pela API RouterOS com um utilizador **só de leitura**.
 Feita para correr num contentor LXC (Debian 12) no Proxmox.
 
@@ -73,12 +73,28 @@ Abre `http://IP-DO-CONTENTOR:8080`.
 | `MT_HOST`, `MT_PORT` | IP e porta da API do MikroTik |
 | `MT_USER`, `MT_PASS` | Utilizador só de leitura |
 | `MT_SSL`, `MT_SSL_VERIFY` | Usar API-SSL (8729) / validar certificado |
-| `WAN1_IFACE`, `WAN2_IFACE` | Nome das interfaces no MikroTik |
-| `WAN1_LABEL`, `WAN2_LABEL` | Nome que aparece na página |
+| `WANn_IFACE` (n = 1..9) | Nome da interface no MikroTik; WAN3 em diante só aparece se estiver definida |
+| `WANn_LABEL` | Nome que aparece na página |
+| `WANn_GATEWAY` | Gateway mostrado no cartão (só informativo) |
+| `WANn_HOST`, `WANn_USER`, `WANn_PASS`, `WANn_PORT`, `WANn_SSL` | Ler esta WAN de **outro** router (por defeito usa `MT_*`) |
 | `POLL_INTERVAL` | Segundos entre leituras (2 por defeito) |
 | `HISTORY_SECONDS` | Histórico guardado em memória (3600 = 1 h) |
 | `DASH_USER`, `DASH_PASS` | Senha opcional para abrir a página |
 | `DEMO=1` | Tráfego fictício para testar sem router |
+
+## Acrescentar uma WAN
+
+No `/etc/wan-monitor.env`:
+
+```
+WAN3_IFACE=ether1
+WAN3_LABEL=WAN 3
+WAN3_GATEWAY=192.168.15.1
+```
+
+Se essa WAN pertence a outro MikroTik, junta também `WAN3_HOST=…`, `WAN3_USER=…` e `WAN3_PASS=…`
+(e cria nesse router o mesmo utilizador só de leitura com a API ativa). Depois: `systemctl restart wan-monitor`.
+Com 3 WAN, os cartões ficam lado a lado e o gráfico de comparação mostra as três.
 
 ## Problemas comuns
 
