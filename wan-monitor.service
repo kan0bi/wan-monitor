@@ -1,0 +1,21 @@
+[Unit]
+Description=WAN Monitor (MikroTik)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wanmon
+Group=wanmon
+WorkingDirectory=/opt/wan-monitor
+EnvironmentFile=/etc/wan-monitor.env
+ExecStart=/opt/wan-monitor/venv/bin/python /opt/wan-monitor/app.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

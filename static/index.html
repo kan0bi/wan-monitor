@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAN Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#151a22; --line:#252c39; --text:#e9ecf2; --muted:#8b93a5;
+    --dl:#3fb6ff; --ul:#ff9f43; --ok:#2ecc71; --bad:#ff5c5c;
+    --w1:#3fb6ff; --w2:#a66bff;
+    --gap:clamp(8px,1vw,40px);
+    --pad:clamp(10px,1.2vw,48px);
+    --fs:clamp(13px,0.85vw,48px);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font:var(--fs)/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       display:flex;flex-direction:column;overflow:hidden}
+  body.hide-cursor,body.hide-cursor *{cursor:none!important}
+
+  header{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:var(--gap);flex-wrap:wrap;
+         padding:calc(var(--pad)*.6) var(--pad);border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{font-size:1.35em;margin:0;font-weight:650;letter-spacing:.3px}
+  .sub{color:var(--muted);font-size:.85em}
+  .clock{font-size:1.6em;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+  .right{display:flex;align-items:center;gap:var(--gap);flex-wrap:wrap}
+  .status{display:flex;align-items:center;gap:.5em;color:var(--muted);font-size:.9em}
+  .dot{width:.7em;height:.7em;border-radius:50%;background:var(--muted)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)} .dot.bad{background:var(--bad)}
+  .btns{display:flex;gap:4px}
+  .btns button{background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:6px;
+               padding:.35em .8em;cursor:pointer;font:inherit}
+  .btns button:hover{color:var(--text)}
+  .btns button.on{color:var(--text);border-color:var(--dl);background:#3fb6ff1a}
+
+  main{flex:1 1 auto;min-height:0;padding:var(--gap);display:grid;gap:var(--gap);
+       grid-template-rows:minmax(0,62fr) minmax(0,38fr)}
+  body.nocmp main{grid-template-rows:minmax(0,1fr)}
+  body.nocmp #cmpCard{display:none}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);min-height:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:var(--pad);
+        min-width:0;min-height:0;display:flex;flex-direction:column}
+  .card-h{flex:0 0 auto;display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.6em;gap:1em}
+  .card-h h2{margin:0;font-size:1.4em}
+  .badge{font-size:.8em;padding:.15em .7em;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .badge.up{color:var(--ok);border-color:#2ecc7155} .badge.down{color:var(--bad);border-color:#ff5c5c55}
+  .now{flex:0 0 auto;display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:.6em}
+  .big{font-size:clamp(26px,3.2vw,220px);font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .lbl{color:var(--muted);font-size:.8em;text-transform:uppercase;letter-spacing:.6px}
+  .dl{color:var(--dl)} .ul{color:var(--ul)}
+  .stats{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:calc(var(--gap)*.6);margin-bottom:.7em;font-variant-numeric:tabular-nums}
+  .stats div{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.45em .6em}
+  .stats b{display:block;font-size:1.05em;margin-top:2px}
+  .chart{position:relative;flex:1 1 auto;min-height:120px}
+  .err{position:fixed;left:50%;transform:translateX(-50%);top:5em;z-index:5;background:#3a1416;border:1px solid #ff5c5c88;
+       color:#ffc2c2;padding:.7em 1.2em;border-radius:8px;display:none;max-width:90vw}
+
+  /* modo TV: esconde controlos, só o essencial */
+  body.tv .btns{display:none}
+
+  /* ecrãs pequenos (telemóvel): volta a deslizar normalmente */
+  @media (max-width:900px){
+    body{overflow:auto;display:block}
+    main{display:flex;flex-direction:column}
+    .grid{grid-template-columns:1fr}
+    .chart{height:220px;flex:none}
+    #cmpCard .chart{height:240px}
+    .stats{grid-template-columns:1fr 1fr 1fr}
+  }
+  @media (max-width:520px){.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>WAN Monitor</h1>
+    <div class="sub" id="router">—</div>
+  </div>
+  <div class="clock" id="clock">--:--:--</div>
+  <div class="right">
+    <div class="btns" id="range">
+      <button data-s="300">5 min</button>
+      <button data-s="900" class="on">15 min</button>
+      <button data-s="3600">1 h</button>
+    </div>
+    <div class="btns">
+      <button id="cmpBtn" title="Mostrar/ocultar comparação (C)">Comparação</button>
+      <button id="fsBtn" title="Ecrã inteiro (F)">⛶ Ecrã inteiro</button>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="stxt">a ligar…</span></div>
+  </div>
+</header>
+
+<div class="err" id="err"></div>
+
+<main>
+  <div class="grid" id="wans"></div>
+  <div class="card" id="cmpCard">
+    <div class="card-h"><h2>Comparação de download</h2><span class="sub">ambas as WAN</span></div>
+    <div class="chart"><canvas id="cmp"></canvas></div>
+  </div>
+</main>
+
+<script>
+// ---------- opções pelo URL: ?tv=1  ?range=3600  ?cmp=0
+const qs = new URLSearchParams(location.search);
+if (qs.get("tv") === "1" || qs.get("kiosk") === "1") document.body.classList.add("tv");
+if (qs.get("cmp") === "0") document.body.classList.add("nocmp");
+
+const fmtBps = v => {
+  if (v == null || isNaN(v)) return "—";
+  const u = ["bps","Kbps","Mbps","Gbps"]; let i = 0;
+  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+  return v.toFixed(v < 10 && i ? 2 : 1) + " " + u[i];
+};
+const fmtBytes = v => {
+  if (v == null || isNaN(v)) return "—";
+  const u = ["B","KB","MB","GB","TB"]; let i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i ? 2 : 0) + " " + u[i];
+};
+const fmtTime = ms => new Date(ms).toLocaleTimeString("pt-PT", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+
+let windowSec = +(qs.get("range") || 900), since = 0, interval = 2, maxHistory = 3600;
+const data = {};
+const charts = {};
+let cmpChart;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// tamanho da letra dos gráficos acompanha o tamanho do ecrã
+const chartFont = () => Math.round(Math.min(44, Math.max(11, innerWidth / 150)));
+
+const baseOpts = () => ({
+  responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+  interaction: {mode: "index", intersect: false},
+  plugins: {
+    legend: {labels: {color: css("--muted"), boxWidth: 12, font: {size: chartFont()}}},
+    tooltip: {callbacks: {title: i => fmtTime(i[0].parsed.x), label: c => c.dataset.label + ": " + fmtBps(c.parsed.y)}}
+  },
+  scales: {
+    x: {type: "linear", ticks: {color: css("--muted"), maxTicksLimit: 8, callback: fmtTime, font: {size: chartFont()}}, grid: {color: css("--line")}},
+    y: {beginAtZero: true, ticks: {color: css("--muted"), callback: fmtBps, font: {size: chartFont()}}, grid: {color: css("--line")}}
+  },
+  elements: {point: {radius: 0}, line: {borderWidth: Math.max(2, chartFont() / 6), tension: .25}}
+});
+
+function applyFonts() {
+  const f = chartFont();
+  [...Object.values(charts), cmpChart].filter(Boolean).forEach(c => {
+    c.options.plugins.legend.labels.font.size = f;
+    c.options.scales.x.ticks.font.size = f;
+    c.options.scales.y.ticks.font.size = f;
+    c.update("none");
+  });
+}
+
+function buildCard(w) {
+  const el = document.createElement("div");
+  el.className = "card"; el.id = "card-" + w.id;
+  el.innerHTML = `
+    <div class="card-h"><h2>${w.label} <span class="sub">${w.iface}</span></h2><span class="badge" data-k="badge">—</span></div>
+    <div class="now">
+      <div><div class="lbl">⬇ Download</div><div class="big dl" data-k="dl">—</div></div>
+      <div><div class="lbl">⬆ Upload</div><div class="big ul" data-k="ul">—</div></div>
+    </div>
+    <div class="stats">
+      <div><span class="lbl">Pico ⬇ / ⬆</span><b data-k="peak">—</b></div>
+      <div><span class="lbl">Média ⬇ / ⬆</span><b data-k="avg">—</b></div>
+      <div><span class="lbl">Volume ⬇ / ⬆</span><b data-k="vol">—</b></div>
+    </div>
+    <div class="chart"><canvas></canvas></div>`;
+  document.getElementById("wans").appendChild(el);
+  charts[w.id] = new Chart(el.querySelector("canvas"), {
+    type: "line",
+    data: {datasets: [
+      {label: "Download", data: [], borderColor: css("--dl"), backgroundColor: css("--dl") + "22", fill: true},
+      {label: "Upload",   data: [], borderColor: css("--ul"), backgroundColor: css("--ul") + "22", fill: true}
+    ]},
+    options: baseOpts()
+  });
+}
+
+function render() {
+  const now = Date.now(), from = now - windowSec * 1000;
+  const cmpSets = [];
+  Object.values(data).forEach((d, i) => {
+    const pts = d.points.filter(p => p[0] >= from);
+    const card = document.getElementById("card-" + d.meta.id);
+    const q = k => card.querySelector(`[data-k="${k}"]`);
+    const last = d.points[d.points.length - 1];
+    const stale = !last || now - last[0] > interval * 5000;
+    q("dl").textContent = stale ? "—" : fmtBps(last[1]);
+    q("ul").textContent = stale ? "—" : fmtBps(last[2]);
+
+    const b = q("badge");
+    if (!d.meta.found) { b.textContent = "interface não encontrada"; b.className = "badge down"; }
+    else if (d.meta.running) { b.textContent = "ligada"; b.className = "badge up"; }
+    else { b.textContent = "em baixo"; b.className = "badge down"; }
+
+    if (pts.length) {
+      let pr = 0, pt = 0, sr = 0, st = 0, vr = 0, vt = 0;
+      pts.forEach(p => { pr = Math.max(pr, p[1]); pt = Math.max(pt, p[2]); sr += p[1]; st += p[2]; vr += p[1] * interval / 8; vt += p[2] * interval / 8; });
+      q("peak").textContent = fmtBps(pr) + " / " + fmtBps(pt);
+      q("avg").textContent = fmtBps(sr / pts.length) + " / " + fmtBps(st / pts.length);
+      q("vol").textContent = fmtBytes(vr) + " / " + fmtBytes(vt);
+    }
+    const c = charts[d.meta.id];
+    c.data.datasets[0].data = pts.map(p => ({x: p[0], y: p[1]}));
+    c.data.datasets[1].data = pts.map(p => ({x: p[0], y: p[2]}));
+    c.options.scales.x.min = from; c.options.scales.x.max = now;
+    c.update("none");
+
+    const col = css(i === 0 ? "--w1" : "--w2");
+    cmpSets.push({label: d.meta.label, data: pts.map(p => ({x: p[0], y: p[1]})), borderColor: col, backgroundColor: col + "18", fill: true});
+  });
+  if (!cmpChart) cmpChart = new Chart(document.getElementById("cmp"), {type: "line", data: {datasets: cmpSets}, options: baseOpts()});
+  else cmpChart.data.datasets = cmpSets;
+  cmpChart.options.scales.x.min = from; cmpChart.options.scales.x.max = now;
+  cmpChart.update("none");
+}
+
+async function poll() {
+  try {
+    const r = await fetch("api/data?since=" + since, {cache: "no-store"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    interval = j.interval; maxHistory = j.history_seconds;
+    document.getElementById("router").textContent = "Router " + j.router + (j.status.demo ? " · modo DEMO" : "");
+    j.wans.forEach(w => {
+      if (!data[w.id]) { data[w.id] = {meta: w, points: []}; buildCard(w); }
+      const d = data[w.id]; d.meta = w;
+      d.points.push(...w.points);
+      const cut = Date.now() - maxHistory * 1000;
+      while (d.points.length && d.points[0][0] < cut) d.points.shift();
+      if (w.points.length) since = Math.max(since, w.points[w.points.length - 1][0]);
+    });
+    const ok = j.status.connected;
+    document.getElementById("dot").className = "dot " + (ok ? "ok" : "bad");
+    document.getElementById("stxt").textContent = ok ? "atualizado " + fmtTime(j.status.updated) : "sem ligação ao router";
+    const e = document.getElementById("err");
+    e.style.display = ok ? "none" : "block";
+    e.textContent = ok ? "" : "Erro a ler o MikroTik: " + (j.status.error || "desconhecido");
+    render();
+  } catch (err) {
+    document.getElementById("dot").className = "dot bad";
+    document.getElementById("stxt").textContent = "servidor indisponível";
+  }
+  setTimeout(poll, Math.max(1000, interval * 1000));
+}
+
+// ---------- intervalo
+function setRange(s) {
+  windowSec = +s;
+  document.querySelectorAll("#range button").forEach(b => b.classList.toggle("on", +b.dataset.s === windowSec));
+  render();
+}
+document.getElementById("range").addEventListener("click", e => { if (e.target.dataset.s) setRange(e.target.dataset.s); });
+setRange(windowSec);
+
+// ---------- ecrã inteiro
+const fsBtn = document.getElementById("fsBtn");
+function toggleFs() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+fsBtn.addEventListener("click", toggleFs);
+document.addEventListener("fullscreenchange", () => {
+  fsBtn.textContent = document.fullscreenElement ? "✕ Sair" : "⛶ Ecrã inteiro";
+});
+if (!document.fullscreenEnabled) fsBtn.style.display = "none";
+
+// ---------- comparação
+const cmpBtn = document.getElementById("cmpBtn");
+const syncCmp = () => cmpBtn.classList.toggle("on", !document.body.classList.contains("nocmp"));
+cmpBtn.addEventListener("click", () => { document.body.classList.toggle("nocmp"); syncCmp(); });
+syncCmp();
+
+// ---------- atalhos: F = ecrã inteiro, C = comparação, 1/2/3 = intervalo
+addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "f") toggleFs();
+  else if (k === "c") { document.body.classList.toggle("nocmp"); syncCmp(); }
+  else if (k === "1") setRange(300);
+  else if (k === "2") setRange(900);
+  else if (k === "3") setRange(3600);
+});
+
+// ---------- esconde o rato ao fim de 3 s parado
+let idle;
+addEventListener("mousemove", () => {
+  document.body.classList.remove("hide-cursor");
+  clearTimeout(idle);
+  idle = setTimeout(() => document.body.classList.add("hide-cursor"), 3000);
+});
+
+// ---------- relógio e ajuste ao tamanho do ecrã
+setInterval(() => document.getElementById("clock").textContent = new Date().toLocaleTimeString("pt-PT"), 1000);
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(applyFonts, 150); });
+
+poll();
+</script>
+</body>
+</html>
