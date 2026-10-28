@@ -22,6 +22,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 # ---------------------------------------------------------------- configuração
 def env(key, default=None):
     v = os.environ.get(key)
+    v = None if v is None else v.strip().strip('"').strip("'")
     return default if v is None or v == "" else v
 
 MT_HOST = env("MT_HOST", "192.168.88.1")
